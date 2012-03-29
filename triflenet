@@ -1,0 +1,249 @@
+#!/usr/bin/perl -w
+use strict;
+use LWP::UserAgent;
+use HTTP::Response;
+use Getopt::Long;
+use Pod::Usage;
+use Text::Iconv;
+use Env;
+
+my $VERSION = '1.0.0';
+my $SITE;
+my $ua = new LWP::UserAgent;
+$ua->agent("Mozilla/4.0 (compatible; MSIE 5.5; Windows 98; Win 9x 4.90)");
+$ua->cookie_jar({});
+$ua->timeout(60);
+#$ua->show_progress(1) if $verbose;
+push @{ $ua->requests_redirectable }, 'POST';
+my $iconv = new Text::Iconv("koi8-r", "utf8");
+
+my ( $help, $man, $list, $add, $master, $del, $info, $version, $slave_ip );
+
+GetOptions(
+		'help|?'			=> \$help,
+		'man'				=> \$man,
+		'list|l'			=> \$list,
+		'add|a=s'			=> \$add,
+		'master|m=s'		=> \$master,
+		'del|d=s'			=> \$del,
+		'info|i=s'			=> \$info,
+		'version'			=> \$version,
+		'slave-ip|s'		=> \$slave_ip
+) or pod2usage(2);
+
+pod2usage(1) if $help;
+pod2usage( -exitstatus => 0, -verbose => 2 ) if $man;
+
+sub do_login() {
+	my $credentials_file = $ENV{HOME}."/.triflenet/credentials";
+	my $credentials = '';
+	if ( -e $credentials_file ) {
+		$credentials =`cat $credentials_file`;
+		chomp($credentials);
+	}
+	if (length($credentials) eq 0 ) {
+		print "User: ";
+		chomp (my $user = <STDIN>);
+		print "Password: ";
+		my $password;
+		my $trk_loaded = 0;
+	    # "use" loads modules at compile-time. Since Term::ReadKey is used
+	    # if it is installed, but there's no problem if not, we "require"
+	    # instead and import their symbols by hand if successful.
+	    #
+	    # See perldoc -f require and perldoc -q require for further details.
+	    eval {
+	        require Term::ReadKey;
+	        import Term::ReadKey;
+    	    $trk_loaded = 1;
+	    };
+	    ReadMode('noecho') if $trk_loaded;  # input echo off
+	    chomp($password = $trk_loaded ? ReadLine(0) : <STDIN>);
+	    ReadMode('restore') if $trk_loaded; # input echo on
+	    print "\n";
+		$credentials = $user.':'.$password;
+	}
+
+	$SITE = 'http://'.$credentials.'@ns2.trifle.net/';
+}
+
+# Show list of zones
+if (defined($list)) {
+	do_login;
+	my $res =$ua->get($SITE.'main.php');
+	my $page = $iconv->convert($res->content);
+	$page =~ m#<table class="zonelist">(.*?)</table>#s;
+	my $table = $1;
+	printf "%-30s %-15s  %s\n",  "Zone", "IP address", "Active";
+	while ($table =~ m#<tr><td>(.*?)</td>.*?<td>(.*?)</td>.*?<td>(.*?)</td>.*?</tr>#sg ) {
+		printf "%-30s %-15s  %s\n",  $1, $2, $3;
+	}
+	exit 0;
+}
+
+# Add new zone into base
+if (defined($add)) {
+	do_login;
+	if (!defined($master)) {
+		$master = $ua->get('http://www.ippages.com/simple/')->content;
+	}
+	my $res =$ua->get($SITE.'main.php?action=add&zona='.$add.'&ipaddr='.$master);
+	my $page=$iconv->convert($res->content);
+	$page =~ m#<p class="error">([^<]+)</p>#;
+	print $1, "\n";
+	exit 0;
+}
+
+# Delete zone from base
+if (defined($del)) {
+	do_login;
+	my $res = $ua->get($SITE.'main.php?zona='.$del.'&action=delete');
+	my $page = $iconv->convert($res->content);
+	$page =~ m#<p class="error">([^<]+)</p>#;
+	print $1, "\n";
+	exit 0;
+}
+
+# Show zone info
+if (defined($info)) {
+	my $res = $ua->get($SITE.'view.php?zona='.$info);
+	my $page = $iconv->convert($res->content);
+	if ( $page =~ m#<p class="error">([^<]+)</p>#is ) {
+		print $1, "\n";
+	} else {
+		$page =~ m#<pre>\n(.*?)</pre>#s;
+		if (length($1) gt 0) {
+			print $1;
+		} else {
+			print "Зона пустая\n";
+		}
+	}
+	exit 0;
+}
+
+# Show IP address of secondare DNS server
+if (defined($slave_ip)) {
+	do_login;
+	my $res = $ua->get($SITE.'main.php?action=add');
+	my $page = $iconv->convert($res->content);
+	print $1, "\n" if $page =~ m#Адрес нашего DNS сервера - ((\d{1,3}\.){3}\d{1,3}\s+\([^)]+\))#;	
+	exit 0;
+}
+
+# Show version info
+if (defined($version)) {
+	print 'Version ', $VERSION, "\n";
+	exit 0;
+}
+
+pod2usage
+
+__END__
+
+=head1 NAME
+
+triflenet.pl - Client for ns2.trifle.net
+
+=head1 SYNOPSIS
+
+triflenet.pl [options]
+
+ Options:
+ -?,    --help          brief help message
+        --man           full documentation
+
+=head1 OPTIONS
+
+=over 8
+
+=item B<--help>
+
+Print a brief help message and exits.
+
+=item B<--man>
+
+Prints the manual page and exits.
+
+=item B<-l, --list>
+
+Print list of domains
+
+=item B<-a, --add=domain>
+
+Add new B<domain> do list with B<master IP>
+
+=item B<-m, ---master=ip address>
+
+B<IP address> of B<master domain>
+
+=item B<-i, --info=zone>
+
+Show B<zone> contents
+
+=item B<-d, --del=zone>
+
+Delete B<zone>
+
+=item B<-s, --slave-ip>
+
+Display address of secondary domain server
+
+=item B<-?, --version>
+
+Show version
+
+=back
+
+=head1 FILES
+
+=over 8
+
+=item B<$HOME/.triflenet/credentials>
+
+If this file exists, then it is taken the data to access the site.
+
+File format: B<username:password>
+
+=back
+
+=head1 USAGE
+
+=over 8
+
+=item triflenet -l
+
+Gel list of zones on secondary DNS server
+
+=item triflenet -a example.com
+
+Add B<example.com> to secondary DNS server use your current IP as B<master IP>
+
+=item triflenet -a example.com -m 8.8.8.8
+
+Add B<example.com> to secondary DNS server use B<8.8.8.8> as B<master IP>
+
+=item triflenet -d example.com
+
+Delete B<example.com> from secondary DNS server
+
+=back
+
+=head1 DESCRIPTION
+
+Coming soon...
+
+=head1 AUTHOR
+
+Written by Roman Kudlay (mail@krom.org.ru)
+
+=head1 REPORTING BUGS
+
+mail@krom.org.ru
+
+=head1 COPYRIGHT
+
+Copyright © 2010 Free Software Foundation, Inc.  License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+
+This is free software: you are free to change and redistribute it.  There is NO WARRANTY, to the extent permitted by law.
+
+=cut
