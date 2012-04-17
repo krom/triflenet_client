@@ -146,7 +146,7 @@ triflenet.pl - Client for ns2.trifle.net
 
 =head1 SYNOPSIS
 
-triflenet.pl [options]
+triflenet [options]
 
  Options:
  -?,    --help          brief help message
