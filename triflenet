@@ -85,7 +85,7 @@ if (defined($list)) {
 if (defined($add)) {
 	do_login;
 	if (!defined($master)) {
-		$master = $ua->get('http://www.ippages.com/simple/')->content;
+		$master = $ua->get('http://ifconfig.me/ip')->content;
 	}
 	my $res =$ua->get($SITE.'main.php?action=add&zona='.$add.'&ipaddr='.$master);
 	my $page=$iconv->convert($res->content);
@@ -142,7 +142,7 @@ __END__
 
 =head1 NAME
 
-triflenet.pl - Client for ns2.trifle.net
+triflenet - Client for ns2.trifle.net
 
 =head1 SYNOPSIS
 
